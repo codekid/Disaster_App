@@ -1,9 +1,10 @@
 import urllib.request
 import gzip
 from bs4 import BeautifulSoup
-import mysql.connector
 import csv
 import os
+import configparser
+import psycopg2
 
 # Pulls the data from the address and appends it to the file
 def getFileData(url, filename):
@@ -15,6 +16,7 @@ def getFileData(url, filename):
 		# Skip the first line of the file and write the others to the output file
 		# next(f)
 		outfile.write(gzip.decompress(response.read()))
+
 
 def loadToDb(conn):
 	pattern = "StormEvents_details-ftp"
@@ -40,7 +42,7 @@ def loadToDb(conn):
 			# Open a cursor
 
 			insert_statement = ""
-
+			sql =""
 			finalCount = 0
 			headCount = 0
 			print ("Inserting {} data into the Database.".format(filename))
@@ -54,28 +56,18 @@ def loadToDb(conn):
 				for i, row in enumerate(recordReader):
 
 
-					if i != 0:
+					if i != 0 and row[0].isnumeric():
 
 						finalCount = i
-						insert_statement = "INSERT INTO ST_STORM_DATA (BEGIN_YEARMONTH,BEGIN_DAY,BEGIN_TIME,END_YEARMONTH,END_DAY,END_TIME,EPISODE_ID,EVENT_ID,STATE,STATE_FIPS,YEAR,MONTH_NAME,EVENT_TYPE,CZ_TYPE,CZ_FIPS,CZ_NAME,WFO,BEGIN_DATE_TIME,CZ_TIMEZONE,END_DATE_TIME,INJURIES_DIRECT,INJURIES_INDIRECT,DEATHS_DIRECT,DEATHS_INDIRECT,DAMAGE_PROPERTY,DAMAGE_CROPS,SOURCE,MAGNITUDE,MAGNITUDE_TYPE,FLOOD_CAUSE,CATEGORY,TOR_F_SCALE,TOR_LENGTH,TOR_WIDTH,TOR_OTHER_WFO,TOR_OTHER_CZ_STATE,TOR_OTHER_CZ_FIPS,TOR_OTHER_CZ_NAME,BEGIN_RANGE,BEGIN_AZIMUTH,BEGIN_LOCATION,END_RANGE,END_AZIMUTH,END_LOCATION,BEGIN_LAT,BEGIN_LON,END_LAT,END_LON,EPISODE_NARRATIVE,EVENT_NARRATIVE,DATA_SOURCE, FILENAME) VALUES"
+						insert_statement = """
+							INSERT INTO ST_STORM_DATA (BEGIN_YEARMONTH,  BEGIN_DAY,  BEGIN_TIME,  END_YEARMONTH,  END_DAY,  END_TIME,  EPISODE_ID,  EVENT_ID,  STATE,  STATE_FIPS,  YEAR,  MONTH_NAME,  EVENT_TYPE,  CZ_TYPE,  CZ_FIPS,  CZ_NAME,  WFO,  BEGIN_DATE_TIME,  CZ_TIMEZONE,  END_DATE_TIME,  INJURIES_DIRECT,  INJURIES_INDIRECT,  DEATHS_DIRECT,  DEATHS_INDIRECT,  DAMAGE_PROPERTY,  DAMAGE_CROPS,  SOURCE,  MAGNITUDE,  MAGNITUDE_TYPE,  FLOOD_CAUSE,  CATEGORY,  TOR_F_SCALE,  TOR_LENGTH,  TOR_WIDTH,  TOR_OTHER_WFO,  TOR_OTHER_CZ_STATE,  TOR_OTHER_CZ_FIPS,  TOR_OTHER_CZ_NAME,  BEGIN_RANGE,  BEGIN_AZIMUTH,  BEGIN_LOCATION,  END_RANGE,  END_AZIMUTH,  END_LOCATION,  BEGIN_LAT,  BEGIN_LON,  END_LAT,  END_LON,  EPISODE_NARRATIVE,  EVENT_NARRATIVE,  DATA_SOURCE,  FILENAME,  date_loaded) 
+							VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,%s, %s, %s, %s, %s, %s, %s, %s, %s, %s,%s, %s, %s, %s, %s, %s, %s, %s, %s, %s,%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())"""
 						# Escape all double quote " characters that may be in the row
-						row = [w.replace("\"","\\\"") for w in row]
-						# print (row)
 
-						# Find out how many columns of data there are and create enough curly braces for formatting
-						column_num = len(row)
-						columns = ("IFNULL(\"{}\",NULL),"* (column_num-1)) + "IFNULL(\"{}\",NULL)"
-
-						# Create values portion of insert statement
-						values = "(" + columns 
-						values = values.format(*row)
-						values = values +",'"+ file_name  +"')"
-						values = values.replace("\\\",NULL","\", NULL")
-
-						sql = insert_statement + values
-
+						row.append(filename)
+						row = [None if r == "" else r for r in row]
 						# Run the query
-						cursor.execute(sql)
+						cursor.execute(insert_statement, row)
 						finalCount =finalCount-headCount
 						if (finalCount % 30000) == 0:
 							conn.commit()
@@ -90,7 +82,7 @@ def loadToDb(conn):
 		except Exception as e:
 			
 			print ("An error occured: {}".format(e))
-			print ("SQL is: " + sql)
+			print ("SQL is: " + insert_statement)
 			print (row)
 			moveFile(".","./failed", filename)
 			conn.rollback()
@@ -200,11 +192,20 @@ def main():
 	outputFile = "storm_data.csv"
 	summaryFile = "storm_data_aggregate.csv"
 	filenames = []
-	conn = mysql.connector.connect(
-		user="root", 
-		password="p@$$w0rd", 
-		host="localhost", 
-		database="test")
+
+	dir_="C:/Users/Kadeem Letts/Documents/practice/python/Disaster_App"
+	os.chdir(dir_)
+
+	config = configparser.ConfigParser()
+	section='WEATHER_DATA'
+	config.read("config.ini")
+
+	pass_= config[section]['pass']
+	user= config[section]['user']
+	host= config[section]['host']
+	dbname = config[section]['dbname']
+
+	conn = psycopg2.connect(dbname=dbname, user=user, password=pass_, host=host)
 
 	print ("Getting the file names to be extracted.")
 	# Get the raw html from the page that contains the list of file names
@@ -240,7 +241,7 @@ def main():
 	for filename in filenames:
 
 		print ("Retrieving " + filename)
-		getFileData(url, filename)
+		# getFileData(url, filename)
 		print ("Complete")
 
 
@@ -248,7 +249,7 @@ def main():
 	loadToDb(conn)
 
 	# Load Fact table
-	summarizeData(conn)
+	# summarizeData(conn)
 
 	# Summarize property damage by year and state
 	# answerDamageQuery(summaryFile, conn)
